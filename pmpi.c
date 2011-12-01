@@ -92,12 +92,13 @@ typedef struct _mpi_data_send{
   int tag;
   int comm_len;
   
- } mpi_data_send;
+ }mpi_data_send;
  
 typedef struct _mpi_data_recv{
   node n;
   int rank;
   unsigned char MD5[MD5_DIGEST_LENGTH];
+  double fn_start_time;
   double fn_end_time;
   char comm[MPI_MAX_OBJECT_NAME];
   int src;
@@ -108,7 +109,7 @@ typedef struct _mpi_data_recv{
   int tag;
  
  
- } mpi_data_recv;
+ }mpi_data_recv;
  
 typedef struct _mpi_data_bcast{
   node n;
@@ -117,7 +118,7 @@ typedef struct _mpi_data_bcast{
   int root;
   MPI_Comm comm; 
  
- } mpi_data_bcast;
+ }mpi_data_bcast;
  
  
 
@@ -178,16 +179,20 @@ int SMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest,
   int i;
   unsigned char id[MD5_DIGEST_LENGTH];
   int extent;
-  double tstart = MPI_Wtime();       /* Pass on all the arguments */ 
-  int ret    = PMPI_Send(buf,count,datatype,dest,tag,comm);    
+  s->fn_start_time = MPI_WTime();
+  /* pass call along to PMPI_Send, the core fn call */
+  int ret    = PMPI_Send(buf, count, datatype, dest, tag, comm);    
+  s->fn_end_time = MPI_Wtime();      /* end time          */ 
+  
+  init_node(n);
   MPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
-  s->time = MPI_Wtime() - tstart;         /* and time          */ 
   MD5(buf, sizeof(buf), s->MD5);
     // output
   for(i = 0; i < MD5_DIGEST_LENGTH; i++)
 	printf("%02x",  s->MD5[i]);
   printf("\n");
+
   s->dest = dest;
   s->tag = tag;
   (node)s->type = SEND;
@@ -196,11 +201,7 @@ int SMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest,
 
   n->data = s;
 
-  
-
-
-return ret;  
- 
+  return ret;  
     
 }
 
@@ -208,29 +209,33 @@ return ret;
 int SMPI_Recv(void *buf, int count, MPI_Datatype datatype,
     int source, int tag, MPI_Comm comm, MPI_Status *status){
 
-  node *n;
-  mpi_data_recv *s = malloc(sizeof(mpi_data_send));
+  node *n = malloc (sizeof(node));
+  mpi_data_recv *s = malloc(sizeof(mpi_data_recv));
   int i;
   unsigned char id[MD5_DIGEST_LENGTH];
-
-  double tstart = MPI_Wtime();       /* Pass on all the arguments */ 
   int extent; 
-  int ret    = PMPI_Recv(buf,count,datatype,source,tag,comm);    
-  
+  s->fn_start_time = MPI_WTime();
+  /* pass call along to PMPI_Recv, the core fn call */
+  int ret    = PMPI_Recv(buf, count, datatype, source, tag, comm, status);    
+  s->fn_end_time = MPI_WTime();
+
   init_node(n);
   MPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
-  s->time = MPI_Wtime() - tstart;         /* and time          */ 
   MD5(buf, sizeof(buf), s->MD5);
   /* output to test MD5 */
   for(i = 0; i < MD5_DIGEST_LENGTH; i++)
 	printf("%02x",  s->MD5[i]);
   printf("\n");
+
   s->src = src;
   s->tag = tag;
+  (node)s->type = RECV;
   MPI_Comm_rank( comm, &s->rank);
   MPI_Comm_get_name(comm, &s->comm, &s->comm_len);
   
+  n->data = s;
+
   return ret;
   
 }
