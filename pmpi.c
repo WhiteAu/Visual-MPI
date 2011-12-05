@@ -13,29 +13,26 @@
 #else
     #include <unistd.h>
     #define GetCurrentDir getcwd
- #endif
+#endif
 
 #define DEF_MODE 0666
 
 char cCurrentPath[FILENAME_MAX];
-GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));
-printf ("The current working directory is %s", cCurrentPath);
-
 char *out_file = "/Vis_imdt/";
-strcat(cCurrentPath, out_file);
-printf ("The current working directory is %s", cCurrentPath);
 
 int *fd;
 int numprocs;
 int myid;
 
-/* supposedly sets the lock at open time. */
 
-fl.l_type   = F_WRLCK;  /* F_RDLCK, F_WRLCK, F_UNLCK    */
-fl.l_whence = SEEK_SET; /* SEEK_SET, SEEK_CUR, SEEK_END */
-fl.l_start  = 0;        /* Offset from l_whence         */
-fl.l_len    = 0;        /* length, 0 = to EOF           */
-fl.l_pid    = getpid(); /* our PID                      */
+
+/* /\* supposedly sets the lock at open time. *\/ */
+
+/* fl.l_type   = F_WRLCK;  /\* F_RDLCK, F_WRLCK, F_UNLCK    *\/ */
+/* fl.l_whence = SEEK_SET; /\* SEEK_SET, SEEK_CUR, SEEK_END *\/ */
+/* fl.l_start  = 0;        /\* Offset from l_whence         *\/ */
+/* fl.l_len    = 0;        /\* length, 0 = to EOF           *\/ */
+/* fl.l_pid    = getpid(); /\* our PID                      *\/ */
 
 //fcntl(fd, F_SETLKW, &fl);  /* F_GETLK, F_SETLK, F_SETLKW */
 
@@ -45,17 +42,17 @@ enum data_type{
   RECV,
   ISEND,
   IRECV,
-  BCAST,
+  BCAST
+};
 
-}
-
-
-typedef struct _node{
+struct _node{
   void *data;
-  data_type  type;
-  node *next;
+  enum data_type type;
+  struct _node *next;
 
-}node;
+};
+
+typedef struct _node node;
 
 
 
@@ -82,7 +79,7 @@ typedef struct _mpi_data_send{
   int rank;
   unsigned char MD5[MD5_DIGEST_LENGTH];
   double fn_start_time;
-  double fn_end_time
+  double fn_end_time;
   char comm[MPI_MAX_OBJECT_NAME];
   int dest;
 
@@ -121,9 +118,10 @@ typedef struct _mpi_data_bcast{
  }mpi_data_bcast;
  
  
-
+static void init_q();
 static void add_link (node *n);
 static void init_node(node *n);
+static void init_dir();
 static int open_fp(int *fd);
 static void pp_send(mpi_data_send *s, int *fd);
 
@@ -134,12 +132,7 @@ static void pp_send(mpi_data_send *s, int *fd);
 * pretty print dump
 */
 node *queue;
-queue->next = NULL;
-queue->data = NULL;
-queue->data_type = FIRST_LINK;
-
-
-
+int mpi_ob_size = MPI_MAX_OBJECT_NAME;
 
 #pragma weak MPI_Finalize = SMPI_Finalize
 int SMPI_Finalize(){
@@ -156,6 +149,8 @@ process 0 some how...
 int SMPI_Init(int *argc, char ***argv){
   int ret;
   /* this returns the current working directory */
+  init_q();
+  init_dir();
 
   ret = PMPI_Init(argc, argv);
 
@@ -195,9 +190,10 @@ int SMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest,
 
   s->dest = dest;
   s->tag = tag;
-  (node)s->type = SEND;
+  /* good ol' hack */
+  ((node *)s)->type = SEND;
   MPI_Comm_rank( comm, &s->rank);
-  MPI_Comm_get_name(comm, &s->comm, &s->comm_len);
+  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
 
   n->data = s;
 
@@ -228,11 +224,11 @@ int SMPI_Recv(void *buf, int count, MPI_Datatype datatype,
 	printf("%02x",  s->MD5[i]);
   printf("\n");
 
-  s->src = src;
+  s->src = source;
   s->tag = tag;
-  (node)s->type = RECV;
+  ((node *)s)->type = RECV;
   MPI_Comm_rank( comm, &s->rank);
-  MPI_Comm_get_name(comm, &s->comm, &s->comm_len);
+  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
   
   n->data = s;
 
@@ -246,11 +242,11 @@ int SMPI_Barrier(MPI_Comm comm){
     int i;
     unsigned char result[MD5_DIGEST_LENGTH];
 	
-    MD5(comm, sizeof(comm), result);
-    // output
-      for(i = 0; i < MD5_DIGEST_LENGTH; i++)
-        printf("%02x", result[i]);
-      printf("\n");
+    /* MD5(comm, sizeof(comm), result); */
+    /* // output */
+    /*   for(i = 0; i < MD5_DIGEST_LENGTH; i++) */
+    /*     printf("%02x", result[i]); */
+    /*   printf("\n"); */
 
 }
 
@@ -281,13 +277,26 @@ int PMPI_Comm_rank(MPI_Comm comm, int *rank){
  *
  *********************/
 
+static void init_q(){
+
+  queue->next = NULL;
+  queue->data = NULL;
+  queue->type = FIRST_LINK;
+
+  return;
+
+}
+
 static void add_link (node *n){
   node *skip = queue;
 
+
+  /*get to end of list */
   while (skip->next){
-	skip = skip->next
+    skip = skip->next;
   }
   skip->next = n;
+
 
   return;
 
@@ -302,8 +311,39 @@ static void init_node(node *n){
 
 }
 
+/* Currently only accepts up to 2^32 nodes total */
+static void init_dir(){
+  int rank;
+  char buf[32];
+  char *txt = ".txt";
+  int dir_check;
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  itoa(rank, buf, 10);
+
+  GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));
+  printf("The current working directory is %s", cCurrentPath);
+  strcat(cCurrentPath, out_file);
+  printf("The current working directory is %s", cCurrentPath);
+  /* make our new directory, blindly.
+     Don't care if it already exists or not.
+ */
+  dir_check = mkdir(cCurrentPath, 0111);
+
+  strcat(cCurrentPath, buf);
+  strcat(cCurrentPath, txt);
+
+  return;
+
+}
+
+
 static int open_fp(int *fd){
-  return (fd = open("filename", O_WRONLY | O_CREAT | O_APPEND, DEF_MODE));
+
+  fd = open(cCurrentPath, O_WRONLY | O_CREAT | O_APPEND, DEF_MODE);
+  if (fd)
+    return 0;
+  else
+    return -1;
 
 }
 
@@ -328,7 +368,37 @@ static void pp_send(mpi_data_send *s, int *fd){
   fprintf(fd, "DTYPE: %s\n", s->datatype);
   fprintf(fd, "SIZE: %l\n", s->size);
   fprintf(fd, "DEST: %d\n", s->dest);
-  fprintf(fd, "TIME: %d\n\n", s->fn_time); 
+  fprintf(fd, "START TIME: %d\n\n", s->fn_start_time);
+  fprintf(fd, "END TIME: %d\n\n", s->fn_end_time);
 
   return;
 }
+
+
+static void pp_recv(mpi_data_recv *s, int *fd){
+  int i;  
+  int count;
+  MPI_Datatype datatype;
+  int dest;
+  int tag;
+  MPI_Comm comm;
+  
+  if (fd == NULL)
+	fprintf(2,"pretty print of mpi_send data failed.\n");
+  fprintf(fd, "TYPE: SEND\n");
+  fprintf(fd, "COMM: %s\n", (int) s->comm);
+  fprintf(fd, "NODE: %d\n", s->rank);
+  fprintf(fd, "ID: ");
+  for(i = 0; i < MD5_DIGEST_LENGTH; i++)
+	fprintf(fd, "%02x", s->MD5[i]);
+  fprintf(fd, "\n");
+  fprintf(fd, "DTYPE: %s\n", s->datatype);
+  fprintf(fd, "SIZE: %l\n", s->size);
+  fprintf(fd, "DEST: %d\n", s->src);
+  fprintf(fd, "START TIME: %d\n\n", s->fn_start_time); 
+  fprintf(fd, "END TIME: %d\n\n", s->fn_end_time);
+
+  return;
+}
+
+
