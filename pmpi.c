@@ -126,7 +126,7 @@ static int open_fp(void *fd);
 static void pp_send(mpi_data_send *s, void *fd);
 static void pp_recv(mpi_data_recv *s, void *fd);
 static void print_q();
-static char* itoa(int value, char* str, int radix);
+char* itoa(int value, char* str, int radix);
 
 
 
@@ -322,7 +322,7 @@ static void init_dir(){
   char *txt = ".txt";
   int dir_check;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  buf = itoa(rank, buf, 10);
+  itoa(rank, buf, 10);
 
   GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));
   printf("The current working directory is %s", cCurrentPath);
@@ -411,29 +411,29 @@ static void print_q(){
 
 }
 
-    /* The Itoa code is in the puiblic domain */
 char* itoa(int value, char* str, int radix) {
   char dig[] =
-    "0123456789"
-    "abcdefghijklmnopqrstuvwxyz";
+	"0123456789"
+	"abcdefghijklmnopqrstuvwxyz";
   int n = 0, neg = 0;
   unsigned int v;
   char* p, *q;
   char c;
   
   if (radix == 10 && value < 0) {
-    value = -value;
-    neg = 1;
+	value = -value;
+	neg = 1;
   }
   v = value;
   do {
-    str[n++] = dig[v%radix];
-    v /= radix;
+	str[n++] = dig[v%radix];
+	v /= radix;
   } while (v);
   if (neg)
-    str[n++] = '-';
+	str[n++] = '-';
   str[n] = '\0';
-  for (p = str, q = p + n/2; p != q; ++p, --q)
-    c = *p, *p = *q, *q = c;
+  
+  for (p = str, q = p + (n-1); p < q; ++p, --q)
+	c = *p, *p = *q, *q = c;
   return str;
 }
