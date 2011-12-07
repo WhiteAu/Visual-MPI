@@ -15,12 +15,12 @@
     #define GetCurrentDir getcwd
 #endif
 
-#define DEF_MODE 0666
+
 
 char cCurrentPath[FILENAME_MAX];
 char *out_file = "/Vis_imdt/";
 
-int *fd;
+void *fd;
 int numprocs;
 int myid;
 
@@ -122,8 +122,12 @@ static void init_q();
 static void add_link (node *n);
 static void init_node(node *n);
 static void init_dir();
-static int open_fp(int *fd);
-static void pp_send(mpi_data_send *s, int *fd);
+static int open_fp(void *fd);
+static void pp_send(mpi_data_send *s, void *fd);
+static void pp_recv(mpi_data_recv *s, void *fd);
+static void print_q();
+static char* itoa(int value, char* str, int radix);
+
 
 
 
@@ -151,7 +155,7 @@ int SMPI_Init(int *argc, char ***argv){
   /* this returns the current working directory */
   init_q();
   init_dir();
-
+  open_fp(fd);
   ret = PMPI_Init(argc, argv);
 
 
@@ -318,7 +322,7 @@ static void init_dir(){
   char *txt = ".txt";
   int dir_check;
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  itoa(rank, buf, 10);
+  buf = itoa(rank, buf, 10);
 
   GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));
   printf("The current working directory is %s", cCurrentPath);
@@ -337,9 +341,9 @@ static void init_dir(){
 }
 
 
-static int open_fp(int *fd){
+static int open_fp(void *fd){
 
-  fd = open(cCurrentPath, O_WRONLY | O_CREAT | O_APPEND, DEF_MODE);
+  fd = fopen(cCurrentPath, "a");
   if (fd)
     return 0;
   else
@@ -348,7 +352,7 @@ static int open_fp(int *fd){
 }
 
 
-static void pp_send(mpi_data_send *s, int *fd){
+static void pp_send(mpi_data_send *s, void *fd){
   int i;  
   int count;
   MPI_Datatype datatype;
@@ -357,9 +361,9 @@ static void pp_send(mpi_data_send *s, int *fd){
   MPI_Comm comm;
   
   if (fd == NULL)
-	fprintf(2,"pretty print of mpi_send data failed.\n");
+	fprintf(stderr,"pretty print of mpi_send data failed.\n");
   fprintf(fd, "TYPE: SEND\n");
-  fprintf(fd, "COMM: %s\n", (int) s->comm);
+  fprintf(fd, "COMM: %s\n", s->comm);
   fprintf(fd, "NODE: %d\n", s->rank);
   fprintf(fd, "ID: ");
   for(i = 0; i < MD5_DIGEST_LENGTH; i++)
@@ -375,7 +379,7 @@ static void pp_send(mpi_data_send *s, int *fd){
 }
 
 
-static void pp_recv(mpi_data_recv *s, int *fd){
+static void pp_recv(mpi_data_recv *s, void *fd){
   int i;  
   int count;
   MPI_Datatype datatype;
@@ -384,9 +388,9 @@ static void pp_recv(mpi_data_recv *s, int *fd){
   MPI_Comm comm;
   
   if (fd == NULL)
-	fprintf(2,"pretty print of mpi_send data failed.\n");
+	fprintf(stderr,"pretty print of mpi_send data failed.\n");
   fprintf(fd, "TYPE: SEND\n");
-  fprintf(fd, "COMM: %s\n", (int) s->comm);
+  fprintf(fd, "COMM: %s\n", s->comm);
   fprintf(fd, "NODE: %d\n", s->rank);
   fprintf(fd, "ID: ");
   for(i = 0; i < MD5_DIGEST_LENGTH; i++)
@@ -402,3 +406,34 @@ static void pp_recv(mpi_data_recv *s, int *fd){
 }
 
 
+static void print_q(){
+
+
+}
+
+    /* The Itoa code is in the puiblic domain */
+char* itoa(int value, char* str, int radix) {
+  char dig[] =
+    "0123456789"
+    "abcdefghijklmnopqrstuvwxyz";
+  int n = 0, neg = 0;
+  unsigned int v;
+  char* p, *q;
+  char c;
+  
+  if (radix == 10 && value < 0) {
+    value = -value;
+    neg = 1;
+  }
+  v = value;
+  do {
+    str[n++] = dig[v%radix];
+    v /= radix;
+  } while (v);
+  if (neg)
+    str[n++] = '-';
+  str[n] = '\0';
+  for (p = str, q = p + n/2; p != q; ++p, --q)
+    c = *p, *p = *q, *q = c;
+  return str;
+}
