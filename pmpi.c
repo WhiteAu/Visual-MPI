@@ -111,8 +111,15 @@ typedef struct _mpi_data_recv{
   int size;
   int tag;
  
- 
  }mpi_data_recv;
+
+typedef struct _mpi_data_barr{
+  node n;
+  int comm_size;
+  double fn_start_time;
+  char comm[MPI_MAX_OBJECT_NAME];
+  
+}mpi_data_barr;
  
 typedef struct _mpi_data_bcast{
   node n;
@@ -129,8 +136,8 @@ static void add_link (node *n);
 static void init_node(node *n);
 static void init_dir();
 static int open_fp(void *fd);
-static void pp_send(mpi_data_send *s, void *fd);
-static void pp_recv(mpi_data_recv *s, void *fd);
+static void pp_send(mpi_data_send *s);
+static void pp_recv(mpi_data_recv *s);
 static void print_q();
 char* itoa(int value, char* str, int radix);
 static double get_time();
@@ -156,7 +163,8 @@ int SMPI_Finalize(){
   */
 
   ret = PMPI_Finalize();
-  fprintf(stderr, "Finalize Stuff is good.\n");
+  print_q();
+  //fprintf(stderr, "Finalize Stuff is good.\n");
   return ret;
 
 
@@ -172,16 +180,11 @@ int SMPI_Init(int *argc, char ***argv){
   ret = PMPI_Init(argc, argv);
  
   init_dir();
-  //open_fp(fd);
+  
   init_start = get_time();
-  fprintf(stderr, "Init Stuff is good.\n");
+  //fprintf(stderr, "Init Stuff is good.\n");
+  
   return ret;
-
-/*
-Start some sort of thread in here to hold all the messages in memory
-until MPI_Finalize is called...
-
-*/
 
 }
 
@@ -201,19 +204,22 @@ int SMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest,
   s->fn_end_time = get_time() - init_start;      /* end time          */ 
   
   init_node(n);
-  MPI_Type_get_name(datatype, s->datatype, &type_extent);
-  MPI_Type_size(datatype, &extent);  /* Compute size */ 
+  PMPI_Type_get_name(datatype, s->datatype, &type_extent);
+  PMPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
-  MD5(buf, sizeof(buf), s->MD5);
+  
+  MD5(buf, s->size, s->MD5);
   s->dest = dest;
   s->tag = tag;
   /* good ol' hack */
   ((node *)s)->type = SEND;
-  MPI_Comm_rank( comm, &s->rank);
-  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+  n->type = SEND;
+  PMPI_Comm_rank( comm, &s->rank);
+  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
 
   n->data = s;
-  pp_send(s, fd);
+  //pp_send(s, fd);
+  add_link(n);
   return ret;  
     
 }
@@ -233,43 +239,44 @@ int SMPI_Recv(void *buf, int count, MPI_Datatype datatype,
   s->fn_end_time = get_time() - init_start;
 
   init_node(n);
-  MPI_Type_get_name(datatype, s->datatype, &type_extent);
-  MPI_Type_size(datatype, &extent);  /* Compute size */ 
+  PMPI_Type_get_name(datatype, s->datatype, &type_extent);
+  PMPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
-  MD5(buf, sizeof(buf), s->MD5);
-  /* output to test MD5 */
-  /*
-  for(i = 0; i < MD5_DIGEST_LENGTH; i++)
-	printf("%02x",  s->MD5[i]);
-  printf("\n");
-  */
+  //fprintf(stderr, "In Recv, count is : %d  extent is: %d size is : %d\n",count, extent, s->size);
+  MD5(buf,s->size, s->MD5);
   s->src = source;
   s->tag = tag;
   ((node *)s)->type = RECV;
-  MPI_Comm_rank( comm, &s->rank);
-  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+  n->type = RECV;
+  PMPI_Comm_rank( comm, &s->rank);
+  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
   
   n->data = s;
-  pp_recv(s, fd);
-  fprintf(stderr, "Recv Stuff is good.\n");
+  //pp_recv(s, fd);
+  add_link(n);
+  //fprintf(stderr, "Recv Stuff is good.\n");
   return ret;
   
 }
 
 #pragma weak MPI_Barrier = SMPI_Barrier
 int SMPI_Barrier(MPI_Comm comm){
+  int ret, csize;
+  unsigned char result[MD5_DIGEST_LENGTH];
+  node *n = malloc (sizeof(node));
+  mpi_data_barr *s = malloc(sizeof(mpi_data_barr));
 
-    int i;
-    unsigned char result[MD5_DIGEST_LENGTH];
+  s->fn_start_time = get_time() - init_start;
+  PMPI_Comm_size(comm, &csize);
+  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+
+  ret = PMPI_Barrier(comm);
 	
-    /* MD5(comm, sizeof(comm), result); */
-    /* // output */
-    /*   for(i = 0; i < MD5_DIGEST_LENGTH; i++) */
-    /*     printf("%02x", result[i]); */
-    /*   printf("\n"); */
-	i = PMPI_Barrier(comm);
-	
-	return i;
+  s->comm_size = csize;
+  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+  n->data = s;
+  add_link(n);
+  return ret;
 }
 
 #pragma weak MPI_Bcast = SMPI_Bcast
@@ -281,22 +288,36 @@ int SMPI_Bcast(void *buffer, int count, MPI_Datatype datatype,
   
   MD5(buffer, sizeof(buffer), result);
   // output
-  for(i = 0; i < MD5_DIGEST_LENGTH; i++)
-	printf("%02x", result[i]);
-  printf("\n");
+ /*  for(i = 0; i < MD5_DIGEST_LENGTH; i++) */
+/* 	printf("%02x", result[i]); */
+/*   printf("\n"); */
 	
   ret = PMPI_Bcast(buffer, count, datatype, root, comm);
 
   return ret;
   
 }
-/*
-#pragma weak MPI_Comm_rank = PMPI_Comm_rank
-int PMPI_Comm_rank(MPI_Comm comm, int *rank){
 
+#pragma weak MPI_Isend = PMPI_Isend
+int  SMPI_Isend( void *buf, int count, MPI_Datatype datatype, int dest, int tag,
+               MPI_Comm comm, MPI_Request *request ){
+  int ret;
+
+  ret = PMPI_Isend(buf, count, datatype, dest, tag, comm, request);
+
+  return ret;
+}
+
+int MPI_Wait(MPI_Request *request, MPI_Status *status){
+  int ret;
+
+  ret = PMPI_Wait(request, status);
+
+  return ret;
 
 }
-*/
+
+
 /**********************
  *
  * STATIC FUNCTIONS ***
@@ -314,15 +335,10 @@ static void init_q(){
 }
 
 static void add_link (node *n){
-  node *skip = queue;
-
-
-  /*get to end of list */
-  while (skip->next){
-    skip = skip->next;
-  }
-  skip->next = n;
-
+ 
+  n->next = queue;
+  queue = n;
+  fprintf(stderr,"the node added is now the head of the queue.  its type is %d\n", queue->type);
 
   return;
 
@@ -347,17 +363,12 @@ static void init_dir(){
   mode_t pmask;
   
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  fprintf(stderr, "before itoa\n");
   itoa(rank, buf, 10);
-
-  fprintf(stderr, "after itoa, befor GetCurrDir\n");
-  GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));
-  fprintf(stderr,"The current working directory is %s\n", cCurrentPath);
+  GetCurrentDir(cCurrentPath, sizeof(cCurrentPath));  
 /*   strcpy(file_name, cCurrentPath); */
 /*   strcat(file_name, "/"); */
 /*   strcat(file_name, buf); */
-/*   strcat(file_name, txt); */
-  fprintf(stderr, "our file is going to be: %s\n", file_name);
+/*   strcat(file_name, txt); */  
   strcat(cCurrentPath, "/");
   strcat(cCurrentPath, out_file);
   strcpy(file_name, cCurrentPath);
@@ -370,13 +381,13 @@ static void init_dir(){
 	dir_check = mkdir(cCurrentPath, S_IRWXU );
 	//chmod(cCurrentPath, S_IRWXU | S_IROTH | S_IXOTH);
 	dir_check = chmod(cCurrentPath, 0755);
-	if (dir_check == -1)
-	  fprintf(stderr, "chmod failed, errno = %d\n", errno);
+	//if (dir_check == -1)
+	  //fprintf(stderr, "chmod failed, errno = %d\n", errno);
 	//umask(pmask);
 	
-  } else{
-	fprintf(stderr, "directory already exists.\n");
-  }
+  }/*  else{ */
+/* 	//fprintf(stderr, "directory already exists.\n"); */
+/*   } */
  
   return;
 
@@ -388,24 +399,24 @@ static int open_fp(void *fd){
   
   fd = fopen(file_name,"w");
   if (fd){
-	fprintf(stderr, "File pointer successfully opened\n");
+	//fprintf(stderr, "File pointer successfully opened\n");
     return 0;
   }
   else{
-	fprintf(stderr, "File pointer open failed.");
+	//fprintf(stderr, "File pointer open failed.");
 	return -1;
   }
 }
 
 
-static void pp_send(mpi_data_send *s, void *fd){
+static void pp_send(mpi_data_send *s){
   int i;  
   int count;
   MPI_Datatype datatype;
   int dest;
   int tag;
   MPI_Comm comm;
-  
+  void *fd;
   //open_fp(fd);
   fprintf(stderr,"%s\n", file_name);
   fd = fopen(file_name,"a");
@@ -429,14 +440,15 @@ static void pp_send(mpi_data_send *s, void *fd){
 }
 
 
-static void pp_recv(mpi_data_recv *s, void *fd){
+static void pp_recv(mpi_data_recv *s){
   int i;  
   int count;
   MPI_Datatype datatype;
   int dest;
   int tag;
   MPI_Comm comm;
-  
+  void *fd;
+
   //open_fp(fd);
   fd = fopen(file_name,"a");
   if (fd == NULL)
@@ -460,7 +472,41 @@ static void pp_recv(mpi_data_recv *s, void *fd){
 
 
 static void print_q(){
+  node *curr = queue;
+  
 
+/*   FIRST_LINK = -1, */
+/*   SEND = 0, */
+/*   RECV, */
+/*   ISEND, */
+/*   IRECV, */
+/*   BCAST */
+  while(curr){
+	fprintf(stderr,"inside while\n");
+	switch(curr->type){
+	case FIRST_LINK:
+	  {
+	  break;
+	  }
+	case SEND:
+	  {
+	  pp_send(curr->data);
+	  fprintf(stderr,"should have printed a SEND\n");
+	  break;
+	  }
+	case RECV:
+	  {
+	  pp_recv(curr->data);
+	  fprintf(stderr,"should have printed a RECV\n");
+	  }
+	default:
+	  {
+	  break;
+	  }
+	}
+	curr = curr->next;
+  }
+  fprintf(stderr,"should have printed\n");
 
 }
 
