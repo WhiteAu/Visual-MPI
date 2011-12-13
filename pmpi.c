@@ -111,15 +111,8 @@ typedef struct _mpi_data_recv{
   int size;
   int tag;
  
+ 
  }mpi_data_recv;
-
-typedef struct _mpi_data_barr{
-  node n;
-  int comm_size;
-  double fn_start_time;
-  char comm[MPI_MAX_OBJECT_NAME];
-  
-}mpi_data_barr;
  
 typedef struct _mpi_data_bcast{
   node n;
@@ -180,11 +173,16 @@ int SMPI_Init(int *argc, char ***argv){
   ret = PMPI_Init(argc, argv);
  
   init_dir();
-  
+  //open_fp(fd);
   init_start = get_time();
   //fprintf(stderr, "Init Stuff is good.\n");
-  
   return ret;
+
+/*
+Start some sort of thread in here to hold all the messages in memory
+until MPI_Finalize is called...
+
+*/
 
 }
 
@@ -204,18 +202,18 @@ int SMPI_Send(void *buf, int count, MPI_Datatype datatype, int dest,
   s->fn_end_time = get_time() - init_start;      /* end time          */ 
   
   init_node(n);
-  PMPI_Type_get_name(datatype, s->datatype, &type_extent);
-  PMPI_Type_size(datatype, &extent);  /* Compute size */ 
+  MPI_Type_get_name(datatype, s->datatype, &type_extent);
+  MPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
-  
+  //fprintf(stderr, "in Send, count is : %d  extent is: %d size is : %d\n",count, extent, s->size);
   MD5(buf, s->size, s->MD5);
   s->dest = dest;
   s->tag = tag;
   /* good ol' hack */
   ((node *)s)->type = SEND;
   n->type = SEND;
-  PMPI_Comm_rank( comm, &s->rank);
-  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+  MPI_Comm_rank( comm, &s->rank);
+  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
 
   n->data = s;
   //pp_send(s, fd);
@@ -239,17 +237,23 @@ int SMPI_Recv(void *buf, int count, MPI_Datatype datatype,
   s->fn_end_time = get_time() - init_start;
 
   init_node(n);
-  PMPI_Type_get_name(datatype, s->datatype, &type_extent);
-  PMPI_Type_size(datatype, &extent);  /* Compute size */ 
+  MPI_Type_get_name(datatype, s->datatype, &type_extent);
+  MPI_Type_size(datatype, &extent);  /* Compute size */ 
   s->size = count*extent; 
   //fprintf(stderr, "In Recv, count is : %d  extent is: %d size is : %d\n",count, extent, s->size);
   MD5(buf,s->size, s->MD5);
+  /* output to test MD5 */
+  /*
+  for(i = 0; i < MD5_DIGEST_LENGTH; i++)
+	printf("%02x",  s->MD5[i]);
+  printf("\n");
+  */
   s->src = source;
   s->tag = tag;
   ((node *)s)->type = RECV;
   n->type = RECV;
-  PMPI_Comm_rank( comm, &s->rank);
-  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
+  MPI_Comm_rank( comm, &s->rank);
+  MPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
   
   n->data = s;
   //pp_recv(s, fd);
@@ -261,22 +265,18 @@ int SMPI_Recv(void *buf, int count, MPI_Datatype datatype,
 
 #pragma weak MPI_Barrier = SMPI_Barrier
 int SMPI_Barrier(MPI_Comm comm){
-  int ret, csize;
-  unsigned char result[MD5_DIGEST_LENGTH];
-  node *n = malloc (sizeof(node));
-  mpi_data_barr *s = malloc(sizeof(mpi_data_barr));
 
-  s->fn_start_time = get_time() - init_start;
-  PMPI_Comm_size(comm, &csize);
-  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
-
-  ret = PMPI_Barrier(comm);
+    int i;
+    unsigned char result[MD5_DIGEST_LENGTH];
 	
-  s->comm_size = csize;
-  PMPI_Comm_get_name(comm, s->comm, &mpi_ob_size);
-  n->data = s;
-  add_link(n);
-  return ret;
+    /* MD5(comm, sizeof(comm), result); */
+    /* // output */
+    /*   for(i = 0; i < MD5_DIGEST_LENGTH; i++) */
+    /*     printf("%02x", result[i]); */
+    /*   printf("\n"); */
+	i = PMPI_Barrier(comm);
+	
+	return i;
 }
 
 #pragma weak MPI_Bcast = SMPI_Bcast
@@ -297,27 +297,13 @@ int SMPI_Bcast(void *buffer, int count, MPI_Datatype datatype,
   return ret;
   
 }
+/*
+#pragma weak MPI_Comm_rank = PMPI_Comm_rank
+int PMPI_Comm_rank(MPI_Comm comm, int *rank){
 
-#pragma weak MPI_Isend = PMPI_Isend
-int  SMPI_Isend( void *buf, int count, MPI_Datatype datatype, int dest, int tag,
-               MPI_Comm comm, MPI_Request *request ){
-  int ret;
-
-  ret = PMPI_Isend(buf, count, datatype, dest, tag, comm, request);
-
-  return ret;
-}
-
-int MPI_Wait(MPI_Request *request, MPI_Status *status){
-  int ret;
-
-  ret = PMPI_Wait(request, status);
-
-  return ret;
 
 }
-
-
+*/
 /**********************
  *
  * STATIC FUNCTIONS ***
